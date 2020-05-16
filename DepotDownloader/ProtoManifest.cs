@@ -33,15 +33,20 @@ namespace DepotDownloader
 
             public FileData(DepotManifest.FileData sourceData) : this()
             {
-                FileName = sourceData.FileName.Replace("\\", "/");
+                FileName = sourceData.FileName;
                 sourceData.Chunks.ForEach(c => Chunks.Add(new ChunkData(c)));
                 Flags = sourceData.Flags;
                 TotalSize = sourceData.TotalSize;
                 FileHash = sourceData.FileHash;
             }
 
+            private string _fileName;
             [ProtoMember(1)]
-            public string FileName { get; internal set; }
+            public string FileName
+            {
+                get => _fileName;
+                internal set => _fileName = value.Replace("\\", "/");
+            }
 
             /// <summary>
             /// Gets the chunks that this file is composed of.
