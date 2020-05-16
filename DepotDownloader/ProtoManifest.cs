@@ -33,7 +33,7 @@ namespace DepotDownloader
 
             public FileData(DepotManifest.FileData sourceData) : this()
             {
-                FileName = sourceData.FileName;
+                FileName = sourceData.FileName.Replace("\\", "/");
                 sourceData.Chunks.ForEach(c => Chunks.Add(new ChunkData(c)));
                 Flags = sourceData.Flags;
                 TotalSize = sourceData.TotalSize;
