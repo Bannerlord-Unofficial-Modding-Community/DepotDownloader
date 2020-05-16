@@ -797,8 +797,8 @@ namespace DepotDownloader
                             await semaphore.WaitAsync().ConfigureAwait( false );
                             cts.Token.ThrowIfCancellationRequested();
 
-                            string fileFinalPath = Path.Combine( depot.installDir, file.FileName );
-                            string fileStagingPath = Path.Combine( stagingDir, file.FileName );
+                            string fileFinalPath = Path.Combine( depot.installDir, file.FileName ).Replace("\\", "/");
+                            string fileStagingPath = Path.Combine( stagingDir, file.FileName ).Replace("\\", "/");
 
                             // This may still exist if the previous run exited before cleanup
                             if ( File.Exists( fileStagingPath ) )

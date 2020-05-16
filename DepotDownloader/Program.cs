@@ -8,12 +8,12 @@ using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 namespace DepotDownloader
 {
-    class Program
+    public class Program
     {
-        static int Main( string[] args )
+        public static int Main( string[] args )
             => MainAsync( args ).GetAwaiter().GetResult();
 
-        static async Task<int> MainAsync( string[] args )
+        public static async Task<int> MainAsync( string[] args )
         {
             if ( args.Length == 0 )
             {
