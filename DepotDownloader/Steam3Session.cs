@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 namespace DepotDownloader
 {
 
-    class Steam3Session
+    public class Steam3Session
     {
         public class Credentials
         {

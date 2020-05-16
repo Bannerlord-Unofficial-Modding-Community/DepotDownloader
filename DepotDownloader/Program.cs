@@ -73,7 +73,7 @@ namespace DepotDownloader
                             if ( isWindows )
                             {
                                 // On Windows, ensure that forward slashes can match either forward or backslashes in depot paths
-                                fileEntryProcessed = fileEntry.Replace( "/", "[\\\\|/]" );
+                                fileEntryProcessed = fileEntry.Replace( "\\", "/" );
                             }
                             else
                             {
@@ -89,7 +89,7 @@ namespace DepotDownloader
                             // on Windows
                             if( isWindows )
                             {
-                                ContentDownloader.Config.FilesToDownload.Add( fileEntry.Replace( "/", "\\" ) );
+                                ContentDownloader.Config.FilesToDownload.Add( fileEntry.Replace( "\\", "/" ) );
                             }
                             ContentDownloader.Config.FilesToDownload.Add( fileEntry );
                             continue;
@@ -126,7 +126,7 @@ namespace DepotDownloader
             {
                 #region Pubfile Downloading
 
-                if ( InitializeSteam( username, password ) )
+                if ( true /* InitializeSteam( username, password ) */ )
                 {
                     try
                     {
@@ -146,7 +146,7 @@ namespace DepotDownloader
                     }
                     finally
                     {
-                        ContentDownloader.ShutdownSteam3();
+                        //ContentDownloader.ShutdownSteam3();
                     }
                 }
                 else
@@ -206,7 +206,7 @@ namespace DepotDownloader
                     }
                 }
 
-                if ( InitializeSteam( username, password ) )
+                if (true /* InitializeSteam( username, password ) */ )
                 {
                     try
                     {
@@ -226,7 +226,7 @@ namespace DepotDownloader
                     }
                     finally
                     {
-                        ContentDownloader.ShutdownSteam3();
+                        //ContentDownloader.ShutdownSteam3();
                     }
                 }
                 else
@@ -241,7 +241,7 @@ namespace DepotDownloader
             return 0;
         }
 
-        static bool InitializeSteam( string username, string password )
+        public static bool InitializeSteam( string username, string password )
         {
             if ( username != null && password == null && ( !ContentDownloader.Config.RememberPassword || !AccountSettingsStore.Instance.LoginKeys.ContainsKey( username ) ) )
             {

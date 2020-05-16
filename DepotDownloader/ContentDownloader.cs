@@ -16,7 +16,7 @@ namespace DepotDownloader
         public ContentDownloaderException( String value ) : base( value ) {}
     }
 
-    static class ContentDownloader
+    public static class ContentDownloader
     {
         public const uint INVALID_APP_ID = uint.MaxValue;
         public const uint INVALID_DEPOT_ID = uint.MaxValue;
@@ -25,13 +25,13 @@ namespace DepotDownloader
 
         public static DownloadConfig Config = new DownloadConfig();
 
-        private static Steam3Session steam3;
+        public static Steam3Session steam3;
         private static Steam3Session.Credentials steam3Credentials;
         private static CDNClientPool cdnPool;
 
         private const string DEFAULT_DOWNLOAD_DIR = "depots";
         private const string CONFIG_DIR = ".DepotDownloader";
-        private static readonly string STAGING_DIR = Path.Combine( CONFIG_DIR, "staging" );
+        private static readonly string STAGING_DIR = Path.Combine( CONFIG_DIR, "staging" ).Replace("\\", "/");
 
         private sealed class DepotDownloadInfo
         {
@@ -46,7 +46,7 @@ namespace DepotDownloader
             {
                 this.id = depotid;
                 this.manifestId = manifestId;
-                this.installDir = installDir;
+                this.installDir = installDir.Replace("\\", "/");
                 this.contentName = contentName;
             }
         }
@@ -92,7 +92,9 @@ namespace DepotDownloader
             if ( !Config.UsingFileList )
                 return true;
 
-            foreach ( string fileListEntry in Config.FilesToDownload )
+            filename = filename.Replace("\\", "/");
+
+             foreach ( string fileListEntry in Config.FilesToDownload )
             {
                 if ( fileListEntry.Equals( filename, StringComparison.OrdinalIgnoreCase ) )
                     return true;
@@ -100,7 +102,7 @@ namespace DepotDownloader
 
             foreach ( Regex rgx in Config.FilesToDownloadRegex )
             {
-                Match m = rgx.Match( filename );
+                Match m = rgx.Match( filename.Replace("/", "\\"));
 
                 if ( m.Success )
                     return true;
@@ -142,7 +144,7 @@ namespace DepotDownloader
             return false;
         }
 
-        internal static KeyValue GetSteam3AppSection( uint appId, EAppInfoSection section )
+        public static KeyValue GetSteam3AppSection( uint appId, EAppInfoSection section )
         {
             if ( steam3 == null || steam3.AppInfo == null )
             {

@@ -44,8 +44,8 @@ namespace DepotDownloader
             [ProtoMember(1)]
             public string FileName
             {
-                get => _fileName;
-                internal set => _fileName = value.Replace("\\", "/");
+                get => _fileName.Replace("\\", "/");
+                internal set => _fileName = value;
             }
 
             /// <summary>
