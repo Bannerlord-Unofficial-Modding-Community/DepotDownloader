@@ -6,6 +6,8 @@ using SteamKit2;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
+using System.Threading;
+
 namespace DepotDownloader
 {
     public class Program
@@ -15,6 +17,18 @@ namespace DepotDownloader
 
         public static async Task<int> MainAsync( string[] args )
         {
+            var ctrlC = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, eventArgs) =>
+            {
+                if (eventArgs.SpecialKey != ConsoleSpecialKey.ControlC)
+                    return;
+
+                ctrlC.Cancel();
+                eventArgs.Cancel = true;
+            };
+
+            var ct = ctrlC.Token;
+            
             if ( args.Length == 0 )
             {
                 PrintUsage();
@@ -130,7 +144,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        await ContentDownloader.DownloadPubfileAsync( appId, pubFile ).ConfigureAwait( false );
+                        await ContentDownloader.DownloadPubfileAsync( appId, pubFile, ct ).ConfigureAwait( false );
                     }
                     catch ( Exception ex ) when (
                         ex is ContentDownloaderException
@@ -210,7 +224,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        await ContentDownloader.DownloadAppAsync( appId, depotId, manifestId, branch, os, arch, language, lv, isUGC ).ConfigureAwait( false );
+                        await ContentDownloader.DownloadAppAsync( appId, depotId, manifestId, branch, os, arch, language, lv, isUGC, ct ).ConfigureAwait( false );
                     }
                     catch ( Exception ex ) when (
                         ex is ContentDownloaderException

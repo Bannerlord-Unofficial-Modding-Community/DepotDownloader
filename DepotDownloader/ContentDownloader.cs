@@ -382,13 +382,13 @@ namespace DepotDownloader
             steam3.Disconnect();
         }
 
-        public static async Task DownloadPubfileAsync( uint appId, ulong publishedFileId )
+        public static async Task DownloadPubfileAsync( uint appId, ulong publishedFileId, CancellationToken ct)
         {
             var details = steam3.GetPubfileItemInfo( appId, publishedFileId );
 
             if ( details?.manifest_id > 0 )
             {
-                await DownloadAppAsync( appId, appId, details.manifest_id, DEFAULT_BRANCH, null, null, null, false, true );
+                await DownloadAppAsync( appId, appId, details.manifest_id, DEFAULT_BRANCH, null, null, null, false, true, ct );
             }
             else
             {
@@ -396,7 +396,7 @@ namespace DepotDownloader
             }
         }
 
-        public static async Task DownloadAppAsync( uint appId, uint depotId, ulong manifestId, string branch, string os, string arch, string language, bool lv, bool isUgc )
+        public static async Task DownloadAppAsync( uint appId, uint depotId, ulong manifestId, string branch, string os, string arch, string language, bool lv, bool isUgc, CancellationToken ct)
         {
             // Load our configuration data containing the depots currently installed
             string configPath = ContentDownloader.Config.InstallDirectory;
@@ -408,8 +408,7 @@ namespace DepotDownloader
             Directory.CreateDirectory(Path.Combine(configPath, CONFIG_DIR));
             DepotConfigStore.LoadFromFile(Path.Combine(configPath, CONFIG_DIR, "depot.config"));
 
-            if ( steam3 != null )
-                steam3.RequestAppInfo( appId );
+            steam3?.RequestAppInfo( appId );
 
             if ( !AccountHasAccess( appId ) )
             {
@@ -517,7 +516,7 @@ namespace DepotDownloader
 
             try
             {
-                await DownloadSteam3Async( appId, infos ).ConfigureAwait( false );
+                await DownloadSteam3Async( appId, infos, ct ).ConfigureAwait( false );
             }
             catch ( OperationCanceledException )
             {
@@ -594,7 +593,7 @@ namespace DepotDownloader
             public ProtoManifest.ChunkData NewChunk { get; private set; }
         }
 
-        private static async Task DownloadSteam3Async( uint appId, List<DepotDownloadInfo> depots, CancellationToken ct = default )
+        private static async Task DownloadSteam3Async( uint appId, List<DepotDownloadInfo> depots, CancellationToken ct )
         {
             ulong TotalBytesCompressed = 0;
             ulong TotalBytesUncompressed = 0;
