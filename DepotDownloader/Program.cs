@@ -12,10 +12,8 @@ namespace DepotDownloader
 {
     public class Program
     {
-        public static int Main( string[] args )
-            => MainAsync( args ).GetAwaiter().GetResult();
 
-        public static async Task<int> MainAsync( string[] args )
+        public static async Task<int> Main( string[] args )
         {
             var ctrlC = new CancellationTokenSource();
             Console.CancelKeyPress += (sender, eventArgs) =>
@@ -71,7 +69,7 @@ namespace DepotDownloader
             {
                 try
                 {
-                    string fileListData = File.ReadAllText(fileList);
+                    string fileListData = await File.ReadAllTextAsync(fileList, ct);
                     files = fileListData.Split( new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries );
 
                     ContentDownloader.Config.UsingFileList = true;
