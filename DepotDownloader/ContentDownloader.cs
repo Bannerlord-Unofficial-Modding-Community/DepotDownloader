@@ -594,7 +594,7 @@ namespace DepotDownloader
             public ProtoManifest.ChunkData NewChunk { get; private set; }
         }
 
-        private static async Task DownloadSteam3Async( uint appId, List<DepotDownloadInfo> depots )
+        private static async Task DownloadSteam3Async( uint appId, List<DepotDownloadInfo> depots, CancellationToken ct = default )
         {
             ulong TotalBytesCompressed = 0;
             ulong TotalBytesUncompressed = 0;
@@ -606,7 +606,8 @@ namespace DepotDownloader
 
                 Console.WriteLine( "Downloading depot {0} - {1}", depot.id, depot.contentName );
 
-                CancellationTokenSource cts = new CancellationTokenSource();
+                CancellationTokenSource localCts = new CancellationTokenSource();
+                CancellationTokenSource cts = ct != default ? CancellationTokenSource.CreateLinkedTokenSource(localCts.Token, ct) : localCts;
                 cdnPool.ExhaustedToken = cts;
 
                 ProtoManifest oldProtoManifest = null;
@@ -796,7 +797,7 @@ namespace DepotDownloader
                         
                         try
                         {
-                            await semaphore.WaitAsync().ConfigureAwait( false );
+                            await semaphore.WaitAsync(cts.Token).ConfigureAwait( false );
                             cts.Token.ThrowIfCancellationRequested();
 
                             string fileFinalPath = Path.Combine( depot.installDir, file.FileName );
@@ -872,7 +873,7 @@ namespace DepotDownloader
                                                 else
                                                 {
                                                     fs.Seek( ( long )match.NewChunk.Offset, SeekOrigin.Begin );
-                                                    fs.Write( tmp, 0, tmp.Length );
+                                                    await fs.WriteAsync( tmp, 0, tmp.Length, cts.Token);
                                                 }
                                             }
                                         }
@@ -893,12 +894,11 @@ namespace DepotDownloader
                                     neededChunks = Util.ValidateSteam3FileChecksums( fs, file.Chunks.OrderBy( x => x.Offset ).ToArray() );
                                 }
 
-                                if ( neededChunks.Count() == 0 )
+                                if ( !neededChunks.Any() )
                                 {
                                     size_downloaded += file.TotalSize;
                                     Console.WriteLine( "{0,6:#00.00}% {1}", ( ( float )size_downloaded / ( float )complete_download_size ) * 100.0f, fileFinalPath );
-                                    if ( fs != null )
-                                        fs.Dispose();
+                                    fs?.Dispose();
                                     return;
                                 }
                                 else
@@ -926,12 +926,14 @@ namespace DepotDownloader
                                         break;
                                     }
 
-                                    DepotManifest.ChunkData data = new DepotManifest.ChunkData();
-                                    data.ChunkID = chunk.ChunkID;
-                                    data.Checksum = chunk.Checksum;
-                                    data.Offset = chunk.Offset;
-                                    data.CompressedLength = chunk.CompressedLength;
-                                    data.UncompressedLength = chunk.UncompressedLength;
+                                    DepotManifest.ChunkData data = new DepotManifest.ChunkData
+                                    {
+                                        ChunkID = chunk.ChunkID,
+                                        Checksum = chunk.Checksum,
+                                        Offset = chunk.Offset,
+                                        CompressedLength = chunk.CompressedLength,
+                                        UncompressedLength = chunk.UncompressedLength
+                                    };
 
                                     try
                                     {
@@ -977,12 +979,12 @@ namespace DepotDownloader
                                 DepotBytesUncompressed += chunk.UncompressedLength;
 
                                 fs.Seek( ( long )chunk.Offset, SeekOrigin.Begin );
-                                fs.Write( chunkData.Data, 0, chunkData.Data.Length );
+                                await fs.WriteAsync( chunkData.Data, 0, chunkData.Data.Length, cts.Token);
 
                                 size_downloaded += chunk.UncompressedLength;
                             }
 
-                            fs.Dispose();
+                            fs?.Dispose();
 
                             Console.WriteLine( "{0,6:#00.00}% {1}", ( ( float )size_downloaded / ( float )complete_download_size ) * 100.0f, fileFinalPath );
                         }
@@ -990,12 +992,12 @@ namespace DepotDownloader
                         {
                             semaphore.Release();
                         }
-                    } );
+                    }, cts.Token);
 
                     tasks[ i ] = task;
                 }
 
-                await Task.WhenAll( tasks ).ConfigureAwait( false );
+                Task.WaitAll(tasks, cts.Token);
 
                 DepotConfigStore.Instance.InstalledManifestIDs[ depot.id ] = depot.manifestId;
                 DepotConfigStore.Save();
