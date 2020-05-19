@@ -658,7 +658,8 @@ namespace DepotDownloader
 
                 CancellationTokenSource localCts = new CancellationTokenSource();
                 CancellationTokenSource cts = ct != default ? CancellationTokenSource.CreateLinkedTokenSource(localCts.Token, ct) : localCts;
-                CdnPool.ExhaustedToken = cts;
+                CdnPool.ExhaustedToken = localCts;
+                var localCt = cts.Token;
 
                 ProtoManifest oldProtoManifest = null;
                 ProtoManifest newProtoManifest = null;
@@ -681,7 +682,7 @@ namespace DepotDownloader
 
                         try
                         {
-                            expectedChecksum = await File.ReadAllBytesAsync(oldManifestFileName + ".sha", cts.Token);
+                            expectedChecksum = await File.ReadAllBytesAsync(oldManifestFileName + ".sha", localCt);
                         }
                         catch (IOException)
                         {
@@ -714,7 +715,7 @@ namespace DepotDownloader
 
                         try
                         {
-                            expectedChecksum = await File.ReadAllBytesAsync(newManifestFileName + ".sha", cts.Token);
+                            expectedChecksum = await File.ReadAllBytesAsync(newManifestFileName + ".sha", localCt);
                         }
                         catch (IOException)
                         {
@@ -745,10 +746,10 @@ namespace DepotDownloader
                             Tuple<CDNClient.Server, string> connection = null;
                             try
                             {
-                                connection = await CdnPool.GetConnectionForDepot(appId, depot.id, CancellationToken.None);
+                                connection = await CdnPool.GetConnectionForDepot(appId, depot.id, ct);
 
                                 depotManifest = await CdnPool.CDNClient.DownloadManifestAsync(depot.id, depot.manifestId,
-                                    connection.Item1, connection.Item2, depot.depotKey).ConfigureAwait(false);
+                                    connection.Item1, connection.Item2, depot.depotKey);
 
                                 CdnPool.ReturnConnection(connection);
                             }
@@ -804,7 +805,7 @@ namespace DepotDownloader
                         manifestBuilder.Append(string.Format("{0}\n", file.FileName));
                     }
 
-                    await File.WriteAllTextAsync(txtManifest, manifestBuilder.ToString(), cts.Token);
+                    await File.WriteAllTextAsync(txtManifest, manifestBuilder.ToString(), localCt);
                     continue;
                 }
 
@@ -843,12 +844,12 @@ namespace DepotDownloader
                     var file = files[i];
                     var task = Task.Run(async () =>
                     {
-                        cts.Token.ThrowIfCancellationRequested();
+                        localCt.ThrowIfCancellationRequested();
 
                         try
                         {
-                            await semaphore.WaitAsync(cts.Token).ConfigureAwait(false);
-                            cts.Token.ThrowIfCancellationRequested();
+                            await semaphore.WaitAsync(localCt).ConfigureAwait(false);
+                            localCt.ThrowIfCancellationRequested();
 
                             string fileFinalPath = Path.Combine(depot.installDir, file.FileName);
                             string fileStagingPath = Path.Combine(stagingDir, file.FileName);
@@ -923,7 +924,7 @@ namespace DepotDownloader
                                                 else
                                                 {
                                                     fs.Seek((long) match.NewChunk.Offset, SeekOrigin.Begin);
-                                                    await fs.WriteAsync(tmp, 0, tmp.Length, cts.Token);
+                                                    await fs.WriteAsync(tmp, 0, tmp.Length, localCt);
                                                 }
                                             }
                                         }
@@ -969,7 +970,7 @@ namespace DepotDownloader
                                     Tuple<CDNClient.Server, string> connection;
                                     try
                                     {
-                                        connection = await CdnPool.GetConnectionForDepot(appId, depot.id, cts.Token);
+                                        connection = await CdnPool.GetConnectionForDepot(appId, depot.id, localCt);
                                     }
                                     catch (OperationCanceledException)
                                     {
@@ -999,7 +1000,7 @@ namespace DepotDownloader
                                         if (e.StatusCode == HttpStatusCode.Unauthorized || e.StatusCode == HttpStatusCode.Forbidden)
                                         {
                                             Console.WriteLine("Encountered 401 for chunk {0}. Aborting.", chunkID);
-                                            cts.Cancel();
+                                            localCts.Cancel();
                                             break;
                                         }
                                         else
@@ -1017,11 +1018,11 @@ namespace DepotDownloader
                                 if (chunkData == null)
                                 {
                                     Console.WriteLine("Failed to find any server with chunk {0} for depot {1}. Aborting.", chunkID, depot.id);
-                                    cts.Cancel();
+                                    localCts.Cancel();
                                 }
 
                                 // Throw the cancellation exception if requested so that this task is marked failed
-                                cts.Token.ThrowIfCancellationRequested();
+                                localCt.ThrowIfCancellationRequested();
 
                                 TotalBytesCompressed += chunk.CompressedLength;
                                 DepotBytesCompressed += chunk.CompressedLength;
@@ -1029,7 +1030,7 @@ namespace DepotDownloader
                                 DepotBytesUncompressed += chunk.UncompressedLength;
 
                                 fs.Seek((long) chunk.Offset, SeekOrigin.Begin);
-                                await fs.WriteAsync(chunkData.Data, 0, chunkData.Data.Length, cts.Token);
+                                await fs.WriteAsync(chunkData.Data, 0, chunkData.Data.Length, localCt);
 
                                 size_downloaded += chunk.UncompressedLength;
                             }
@@ -1042,12 +1043,12 @@ namespace DepotDownloader
                         {
                             semaphore.Release();
                         }
-                    }, cts.Token);
+                    }, localCt);
 
                     tasks[i] = task;
                 }
 
-                Task.WaitAll(tasks, cts.Token);
+                Task.WaitAll(tasks, localCt);
 
                 DepotConfigStore.Instance.InstalledManifestIDs[depot.id] = depot.manifestId;
                 DepotConfigStore.Save();
