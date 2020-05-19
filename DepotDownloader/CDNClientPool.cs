@@ -101,12 +101,14 @@ namespace DepotDownloader
                         return;
                     }
 
-                    var weightedCdnServers = servers.Select(x =>
+                    var weightedCdnServers = servers.Select(server =>
                     {
-                        AccountSettingsStore.Instance.ContentServerPenalty.TryGetValue(x.Host, out var penalty);
+                        AccountSettingsStore.Instance.ContentServerPenalty.TryGetValue(server.Host!, out var penalty);
 
-                        return Tuple.Create(x, penalty);
-                    }).OrderBy(x => x.Item2).ThenBy(x => x.Item1.WeightedLoad);
+                        return (Server: server, Penalty: penalty);
+                    })
+                        .OrderByDescending(x => x.Penalty)
+                        .ThenBy(x => x.Server.WeightedLoad);
 
                     foreach (var (server, weight) in weightedCdnServers)
                     {

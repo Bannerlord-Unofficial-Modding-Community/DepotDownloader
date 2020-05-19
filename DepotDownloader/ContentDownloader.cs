@@ -747,14 +747,14 @@ namespace DepotDownloader
 
                         while (depotManifest == null)
                         {
-                            (CDNClient.Server Server, string Token) connection = default;
+                            var connection = await CdnPool.GetConnectionForDepot(appId, depot.id, ct);
+
+                            var downloadManifestTask = CdnPool.CDNClient.DownloadManifestAsync(depot.id, depot.manifestId,
+                                connection.Server, connection.Token, depot.depotKey);
+
                             try
                             {
-                                connection = await CdnPool.GetConnectionForDepot(appId, depot.id, ct);
-
-                                depotManifest = await CdnPool.CDNClient.DownloadManifestAsync(depot.id, depot.manifestId,
-                                    connection.Server, connection.Token, depot.depotKey);
-
+                                depotManifest = await downloadManifestTask;
                                 CdnPool.ReturnConnection(connection);
                             }
                             catch (SteamKitWebRequestException e)
@@ -769,10 +769,27 @@ namespace DepotDownloader
 
                                 Console.WriteLine($"Encountered error downloading depot manifest {depot.id} {depot.manifestId}: {e.StatusCode}");
                             }
+                            catch (OperationCanceledException e) when (e.InnerException is IOException ioe && ioe.InnerException is SocketException)
+                            {
+                                CdnPool.ReturnConnection(connection);
+                                Console.WriteLine($"Encountered unexpected socket cancellation while downloading depot manifest {depot.id} {depot.manifestId} from {connection.Server}:\n"
+                                    + e.InnerException.InnerException);
+                            }
+                            catch (OperationCanceledException e) when (e.InnerException is IOException ioe)
+                            {
+                                CdnPool.ReturnConnection(connection);
+                                Console.WriteLine($"Encountered unexpected IO cancellation while downloading depot manifest {depot.id} {depot.manifestId}:\n"
+                                    + e.InnerException);
+                            }
+                            catch (OperationCanceledException e)
+                            {
+                                CdnPool.ReturnBrokenConnection(connection);
+                            }
                             catch (Exception e)
                             {
                                 CdnPool.ReturnBrokenConnection(connection);
-                                Console.WriteLine($"Encountered error downloading manifest for depot {depot.id} {depot.manifestId}: {e.Message}");
+                                Console.WriteLine($"Encountered error downloading manifest for depot {depot.id} {depot.manifestId}:\n"
+                                    + e);
                             }
                         }
 
@@ -993,7 +1010,7 @@ namespace DepotDownloader
 
                                     var downloadChunkTask = CdnPool.CDNClient.DownloadDepotChunkAsync(depot.id, data,
                                         connection.Server, connection.Token, depot.depotKey);
-                                    
+
                                     try
                                     {
                                         chunkData = await downloadChunkTask;
@@ -1016,22 +1033,26 @@ namespace DepotDownloader
                                     catch (OperationCanceledException e) when (e.InnerException is IOException ioe && ioe.InnerException is SocketException)
                                     {
                                         CdnPool.ReturnConnection(connection);
-                                        Console.WriteLine($"Encountered unexpected socket cancellation while downloading chunk {chunkID} from {connection.Item1}: {e.InnerException.InnerException.Message}");
+                                        Console.WriteLine($"Encountered unexpected socket cancellation while downloading chunk {chunkID} from {connection.Server}:\n"
+                                            + e.InnerException.InnerException);
                                     }
                                     catch (OperationCanceledException e) when (e.InnerException is IOException ioe)
                                     {
                                         CdnPool.ReturnConnection(connection);
-                                        Console.WriteLine($"Encountered unexpected IO cancellation while downloading chunk {chunkID}: {e.InnerException.Message}");
+                                        Console.WriteLine($"Encountered unexpected IO cancellation while downloading chunk {chunkID}:\n"
+                                            + e.InnerException);
                                     }
                                     catch (OperationCanceledException e)
                                     {
                                         CdnPool.ReturnBrokenConnection(connection);
-                                        Console.WriteLine($"Encountered unexpected cancellation while downloading chunk {chunkID}: {e.Message}");
+                                        Console.WriteLine($"Encountered unexpected cancellation while downloading chunk {chunkID}: {e.Message}:\n"
+                                            + e);
                                     }
                                     catch (Exception e)
                                     {
                                         CdnPool.ReturnBrokenConnection(connection);
-                                        Console.WriteLine($"Encountered unexpected error downloading chunk {chunkID}: {e.Message}");
+                                        Console.WriteLine($"Encountered unexpected error downloading chunk {chunkID}: {e.Message}:\n"
+                                            + e);
                                     }
                                 }
 
