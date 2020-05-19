@@ -93,7 +93,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        using (var fs = IsolatedStorage.OpenFile(Instance.FileName, FileMode.Create, FileAccess.Write))
+                        using (var fs = IsolatedStorage.OpenFile(Instance.FileName, FileMode.Create, FileAccess.Write, FileShare.None))
                         using (var ds = new DeflateStream(fs, CompressionMode.Compress))
                             Serializer.Serialize(ds, Instance);
                         _saveQueued = false;

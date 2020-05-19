@@ -39,7 +39,7 @@ namespace DepotDownloader
 
             if (File.Exists(filename))
             {
-                using (FileStream fs = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (FileStream fs = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
                 using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
                     Instance = ProtoBuf.Serializer.Deserialize<DepotConfigStore>(ds);
             }

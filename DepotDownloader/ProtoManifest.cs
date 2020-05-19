@@ -10,6 +10,8 @@ namespace DepotDownloader
     [ProtoContract()]
     class ProtoManifest
     {
+        public static readonly object _lock = new object();
+        
         // Proto ctor
         private ProtoManifest()
         {
@@ -124,39 +126,44 @@ namespace DepotDownloader
 
         public static ProtoManifest LoadFromFile(string filename, out byte[] checksum)
         {
-            if (!File.Exists(filename))
+            lock (_lock)
             {
-                checksum = null;
-                return null;
-            }
+                if (!File.Exists(filename))
+                {
+                    checksum = null;
+                    return null;
+                }
 
-            using (MemoryStream ms = new MemoryStream())
-            {
-                using (FileStream fs = File.Open(filename, FileMode.Open))
-                using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
-                    ds.CopyTo(ms);
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    using (FileStream fs = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
+                        ds.CopyTo(ms);
 
-                checksum = Util.SHAHash(ms.ToArray());
+                    checksum = Util.SHAHash(ms.ToArray());
 
-                ms.Seek(0, SeekOrigin.Begin);
-                return ProtoBuf.Serializer.Deserialize<ProtoManifest>(ms);
+                    ms.Seek(0, SeekOrigin.Begin);
+                    return ProtoBuf.Serializer.Deserialize<ProtoManifest>(ms);
+                }
             }
         }
 
         public void SaveToFile(string filename, out byte[] checksum)
         {
-            
-            using (MemoryStream ms = new MemoryStream())
+            lock (_lock)
             {
-                ProtoBuf.Serializer.Serialize<ProtoManifest>(ms, this);
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    ProtoBuf.Serializer.Serialize<ProtoManifest>(ms, this);
 
-                checksum = Util.SHAHash(ms.ToArray());
+                    checksum = Util.SHAHash(ms.ToArray());
 
-                ms.Seek(0, SeekOrigin.Begin);
+                    ms.Seek(0, SeekOrigin.Begin);
 
-                using (FileStream fs = File.Open(filename, FileMode.Create))
-                using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Compress))
-                    ms.CopyTo(ds);
+                    using (FileStream fs = File.Open(filename, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Compress))
+                        ms.CopyTo(ds);
+                }
             }
         }
     }

@@ -903,10 +903,10 @@ namespace DepotDownloader
 
                                         File.Move(fileFinalPath, fileStagingPath);
 
-                                        fs = File.Open(fileFinalPath, FileMode.Create);
+                                        fs = File.Open(fileFinalPath, FileMode.Create, FileAccess.Write, FileShare.None);
                                         fs.SetLength((long) file.TotalSize);
 
-                                        using (var fsOld = File.Open(fileStagingPath, FileMode.Open))
+                                        using (var fsOld = File.Open(fileStagingPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                                         {
                                             foreach (var match in matchingChunks)
                                             {
@@ -935,7 +935,7 @@ namespace DepotDownloader
                                 {
                                     // No old manifest or file not in old manifest. We must validate.
 
-                                    fs = File.Open(fileFinalPath, FileMode.Open);
+                                    fs = File.Open(fileFinalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                                     if ((ulong) fi.Length != file.TotalSize)
                                     {
                                         fs.SetLength((long) file.TotalSize);
