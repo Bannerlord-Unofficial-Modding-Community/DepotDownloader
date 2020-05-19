@@ -34,6 +34,8 @@ namespace DepotDownloader
 
         public CancellationTokenSource ExhaustedToken { get; set; }
 
+        public int? MaxDownloads = null;
+
         public CDNClientPool(Steam3Session steamSession, ContentDownloader context)
         {
             this.steamSession = steamSession;
@@ -45,7 +47,7 @@ namespace DepotDownloader
             populatePoolEvent = new AutoResetEvent(true);
             shutdownToken = new CancellationTokenSource();
 
-            monitorTask = Task.Factory.StartNew(() => ConnectionPoolMonitorAsync(context)).Unwrap();
+            monitorTask = Task.Factory.StartNew(ConnectionPoolMonitorAsync).Unwrap();
         }
 
         public void Shutdown()
@@ -54,7 +56,7 @@ namespace DepotDownloader
             monitorTask.Wait();
         }
 
-        private async Task<IReadOnlyCollection<CDNClient.Server>> FetchBootstrapServerListAsync(ContentDownloader context)
+        private async Task<IReadOnlyCollection<CDNClient.Server>> FetchBootstrapServerListAsync()
         {
             var backoffDelay = 0;
 
@@ -82,7 +84,7 @@ namespace DepotDownloader
             return null;
         }
 
-        private async Task ConnectionPoolMonitorAsync(ContentDownloader context)
+        private async Task ConnectionPoolMonitorAsync()
         {
             bool didPopulate = false;
 
@@ -93,10 +95,11 @@ namespace DepotDownloader
                 // We want the Steam session so we can take the CellID from the session and pass it through to the ContentServer Directory Service
                 if (availableServerEndpoints.Count < ServerEndpointMinimumSize && steamSession.steamClient.IsConnected)
                 {
-                    var servers = await FetchBootstrapServerListAsync(context).ConfigureAwait(false);
+                    var servers = await FetchBootstrapServerListAsync().ConfigureAwait(false);
 
                     if (servers == null)
                     {
+                        Console.WriteLine("Connection pool exhausted");
                         ExhaustedToken?.Cancel();
                         return;
                     }
@@ -122,6 +125,7 @@ namespace DepotDownloader
                 }
                 else if (availableServerEndpoints.Count == 0 && !steamSession.steamClient.IsConnected && didPopulate)
                 {
+                    Console.WriteLine("Connection pool exhausted");
                     ExhaustedToken?.Cancel();
                     return;
                 }

@@ -803,9 +803,9 @@ namespace DepotDownloader
 
                         newProtoManifest = new ProtoManifest(depotManifest, depot.manifestId);
                         newProtoManifest.SaveToFile(newManifestFileName, out checksum);
-                        File.WriteAllBytes(manifestHashFileName, checksum);
+                        await File.WriteAllBytesAsync(manifestHashFileName, checksum, localCt);
 
-                        Console.WriteLine(" Done!");
+                        Console.WriteLine($"Done downloading manifest {depot.manifestId} for depot {depot.id}");
                     }
                 }
 
@@ -813,18 +813,27 @@ namespace DepotDownloader
 
                 if (Config.DownloadManifestOnly)
                 {
-                    StringBuilder manifestBuilder = new StringBuilder();
-                    string txtManifest = Path.Combine(depot.installDir, string.Format("manifest_{0}.txt", depot.id));
-
-                    foreach (var file in newProtoManifest.Files)
+                    using (var ms = new MemoryStream())
                     {
-                        if (file.Flags.HasFlag(EDepotFileFlag.Directory))
-                            continue;
+                        using (var sw = new StreamWriter(ms, Encoding.UTF8, 256, true) {NewLine = "\n"})
+                        {
+                            foreach (var file in newProtoManifest.Files)
+                            {
+                                if (file.Flags.HasFlag(EDepotFileFlag.Directory))
+                                    continue;
 
-                        manifestBuilder.Append(string.Format("{0}\n", file.FileName));
+                                // ReSharper disable once MethodHasAsyncOverload
+                                sw.WriteLine(file.FileName);
+                            }
+                        }
+
+                        ms.Position = 0;
+                        string txtManifest = Path.Combine(depot.installDir, $"manifest_{depot.id}.txt");
+
+                        await using var fs = File.Open(txtManifest, FileMode.Create, FileAccess.Write, FileShare.None);
+                        await ms.CopyToAsync(fs, localCt);
                     }
 
-                    await File.WriteAllTextAsync(txtManifest, manifestBuilder.ToString(), localCt);
                     continue;
                 }
 
@@ -855,7 +864,9 @@ namespace DepotDownloader
                     }
                 });
 
-                var semaphore = new SemaphoreSlim(Config.MaxDownloads);
+                CdnPool.MaxDownloads ??= Config.MaxDownloads;
+
+                using var semaphore = CdnPool.MaxDownloads.HasValue ? new SemaphoreSlim(CdnPool.MaxDownloads.Value) : null;
                 var files = filesAfterExclusions.Where(f => !f.Flags.HasFlag(EDepotFileFlag.Directory)).ToArray();
                 var tasks = new Task[files.Length];
                 for (var i = 0; i < files.Length; i++)
@@ -867,7 +878,8 @@ namespace DepotDownloader
 
                         try
                         {
-                            await semaphore.WaitAsync(localCt).ConfigureAwait(false);
+                            if (semaphore != null)
+                                await semaphore.WaitAsync(localCt);
                             localCt.ThrowIfCancellationRequested();
 
                             string fileFinalPath = Path.Combine(depot.installDir, file.FileName);
@@ -926,7 +938,7 @@ namespace DepotDownloader
                                         fs = File.Open(fileFinalPath, FileMode.Create, FileAccess.Write, FileShare.None);
                                         fs.SetLength((long) file.TotalSize);
 
-                                        using (var fsOld = File.Open(fileStagingPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                        await using (var fsOld = File.Open(fileStagingPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                                         {
                                             foreach (var match in matchingChunks)
                                             {
@@ -966,7 +978,8 @@ namespace DepotDownloader
 
                                 if (!neededChunks.Any())
                                 {
-                                    fs?.Dispose();
+                                    if (fs != null)
+                                        await fs.DisposeAsync();
                                     size_downloaded += file.TotalSize;
                                     {
                                         var completed = size_downloaded / (float) complete_download_size;
@@ -1076,7 +1089,8 @@ namespace DepotDownloader
                                 size_downloaded += chunk.UncompressedLength;
                             }
 
-                            fs?.Dispose();
+                            if (fs != null)
+                                await fs.DisposeAsync();
 
                             {
                                 var completed = size_downloaded / (float) complete_download_size;
@@ -1085,14 +1099,22 @@ namespace DepotDownloader
                         }
                         finally
                         {
-                            semaphore.Release();
+                            try
+                            {
+                                // ReSharper disable once AccessToDisposedClosure
+                                semaphore?.Release();
+                            }
+                            catch (ObjectDisposedException)
+                            {
+                                // ok
+                            }
                         }
                     }, localCt);
 
                     tasks[i] = task;
                 }
 
-                Task.WaitAll(tasks, localCt);
+                await Task.WhenAll(tasks);
 
                 DepotConfigStore.Instance.InstalledManifestIDs[depot.id] = depot.manifestId;
                 DepotConfigStore.Save();

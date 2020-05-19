@@ -629,7 +629,7 @@ namespace DepotDownloader
                 return;
             }
 
-            Console.WriteLine(" Done!");
+            Console.WriteLine("Logged into Steam3");
 
             this.seq++;
             credentials.LoggedOn = true;
