@@ -1,17 +1,19 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-
 using ProtoBuf;
 using SteamKit2;
 
 namespace DepotDownloader
 {
+
     [ProtoContract()]
     class ProtoManifest
     {
+
         public static readonly object _lock = new object();
-        
+
         // Proto ctor
         private ProtoManifest()
         {
@@ -27,6 +29,7 @@ namespace DepotDownloader
         [ProtoContract()]
         public class FileData
         {
+
             // Proto ctor
             private FileData()
             {
@@ -43,6 +46,7 @@ namespace DepotDownloader
             }
 
             private string _fileName;
+
             [ProtoMember(1)]
             public string FileName
             {
@@ -73,11 +77,13 @@ namespace DepotDownloader
             /// </summary>
             [ProtoMember(5)]
             public byte[] FileHash { get; private set; }
+
         }
 
         [ProtoContract(SkipConstructor = true)]
         public class ChunkData
         {
+
             public ChunkData(DepotManifest.ChunkData sourceChunk)
             {
                 ChunkID = sourceChunk.ChunkID;
@@ -116,6 +122,7 @@ namespace DepotDownloader
             /// </summary>
             [ProtoMember(5)]
             public uint UncompressedLength { get; private set; }
+
         }
 
         [ProtoMember(1)]
@@ -134,16 +141,26 @@ namespace DepotDownloader
                     return null;
                 }
 
-                using (MemoryStream ms = new MemoryStream())
+                try
                 {
-                    using (FileStream fs = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
-                        ds.CopyTo(ms);
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        using (FileStream fs = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
+                            ds.CopyTo(ms);
 
-                    checksum = Util.SHAHash(ms.ToArray());
+                        checksum = Util.SHAHash(ms.ToArray());
 
-                    ms.Seek(0, SeekOrigin.Begin);
-                    return ProtoBuf.Serializer.Deserialize<ProtoManifest>(ms);
+                        ms.Seek(0, SeekOrigin.Begin);
+                        return Serializer.Deserialize<ProtoManifest>(ms);
+                    }
+                }
+                catch (EndOfStreamException eos)
+                {
+                    Console.WriteLine($"Manifest {filename} is partial, removing.");
+                    File.Delete(filename);
+                    checksum = null;
+                    return null;
                 }
             }
         }
@@ -166,5 +183,7 @@ namespace DepotDownloader
                 }
             }
         }
+
     }
+
 }

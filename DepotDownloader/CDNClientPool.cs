@@ -9,23 +9,29 @@ using System.Threading.Tasks;
 
 namespace DepotDownloader
 {
+
     /// <summary>
     /// CDNClientPool provides a pool of connections to CDN endpoints, requesting CDN tokens as needed
     /// </summary>
     public class CDNClientPool
     {
+
         private const int ServerEndpointMinimumSize = 8;
 
         private readonly Steam3Session steamSession;
 
         public CDNClient CDNClient { get; }
 
-        private readonly ConcurrentBag<CDNClient.Server> activeConnectionPool;
+        private readonly ConcurrentStack<CDNClient.Server> activeConnectionPool;
+
         private readonly BlockingCollection<CDNClient.Server> availableServerEndpoints;
 
         private readonly AutoResetEvent populatePoolEvent;
+
         private readonly Task monitorTask;
+
         private readonly CancellationTokenSource shutdownToken;
+
         public CancellationTokenSource ExhaustedToken { get; set; }
 
         public CDNClientPool(Steam3Session steamSession, ContentDownloader context)
@@ -33,7 +39,7 @@ namespace DepotDownloader
             this.steamSession = steamSession;
             CDNClient = new CDNClient(steamSession.steamClient);
 
-            activeConnectionPool = new ConcurrentBag<CDNClient.Server>();
+            activeConnectionPool = new ConcurrentStack<CDNClient.Server>();
             availableServerEndpoints = new BlockingCollection<CDNClient.Server>();
 
             populatePoolEvent = new AutoResetEvent(true);
@@ -64,7 +70,7 @@ namespace DepotDownloader
                 {
                     Console.WriteLine("Failed to retrieve content server list: {0}", ex.Message);
 
-                    if (ex is SteamKitWebRequestException e && e.StatusCode == (HttpStatusCode)429)
+                    if (ex is SteamKitWebRequestException e && e.StatusCode == (HttpStatusCode) 429)
                     {
                         // If we're being throttled, add a delay to the next request
                         backoffDelay = Math.Min(5, ++backoffDelay);
@@ -148,11 +154,11 @@ namespace DepotDownloader
             return availableServerEndpoints.Take(token);
         }
 
-        public async Task<Tuple<CDNClient.Server, string>> GetConnectionForDepot(uint appId, uint depotId, CancellationToken token)
+        public async Task<(CDNClient.Server Server, string Token)> GetConnectionForDepot(uint appId, uint depotId, CancellationToken token)
         {
             // Take a free connection from the connection pool
             // If there were no free connections, create a new one from the server list
-            if (!activeConnectionPool.TryTake(out var server))
+            if (!activeConnectionPool.TryPop(out var server))
             {
                 server = BuildConnection(token);
             }
@@ -160,21 +166,17 @@ namespace DepotDownloader
             // If we don't have a CDN token yet for this server and depot, fetch one now
             var cdnToken = await AuthenticateConnection(appId, depotId, server);
 
-            return Tuple.Create(server, cdnToken);
+            return (server, cdnToken);
         }
 
-        public void ReturnConnection(Tuple<CDNClient.Server, string> server)
+        public void ReturnConnection((CDNClient.Server Server, string Token) server)
+            => activeConnectionPool.Push(server.Server);
+
+        public void ReturnBrokenConnection((CDNClient.Server, string) server)
         {
-            if (server == null) return;
-
-            activeConnectionPool.Add(server.Item1);
-        }
-
-        public void ReturnBrokenConnection(Tuple<CDNClient.Server, string> server)
-        {
-            if (server == null) return;
-
             // Broken connections are not returned to the pool
         }
+
     }
+
 }

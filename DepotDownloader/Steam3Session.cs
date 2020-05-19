@@ -1,5 +1,4 @@
 ﻿using SteamKit2;
-using SteamKit2.Unified.Internal;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -10,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using SteamKit2.Internal;
 
 namespace DepotDownloader
 {

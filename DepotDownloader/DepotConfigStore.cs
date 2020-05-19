@@ -64,6 +64,8 @@ namespace DepotDownloader
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
+                Thread.Sleep(500);
+                
                 if (!_saveQueued)
                     return;
 

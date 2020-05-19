@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -357,8 +358,8 @@ namespace DepotDownloader
             }
         }
 
-        private ContentDownloader() {}
-        
+        private ContentDownloader() { }
+
         public ContentDownloader(string username, string password) : this()
         {
             string loginKey = null;
@@ -392,7 +393,6 @@ namespace DepotDownloader
                 CdnPool = new CDNClientPool(steam3, this);
                 ownsCdnPool = true;
             }
-
         }
 
         public void ShutdownSteam3()
@@ -658,6 +658,7 @@ namespace DepotDownloader
 
                 CancellationTokenSource localCts = new CancellationTokenSource();
                 CancellationTokenSource cts = ct != default ? CancellationTokenSource.CreateLinkedTokenSource(localCts.Token, ct) : localCts;
+
                 CdnPool.ExhaustedToken = localCts;
                 var localCt = cts.Token;
 
@@ -709,13 +710,16 @@ namespace DepotDownloader
                 else
                 {
                     var newManifestFileName = Path.Combine(configDir, string.Format("{0}.bin", depot.manifestId));
+                    var manifestHashFileName = newManifestFileName + ".sha";
                     if (newManifestFileName != null)
                     {
-                        byte[] expectedChecksum, currentChecksum;
+                        byte[] currentChecksum;
+                        byte[] expectedChecksum = null;
 
                         try
                         {
-                            expectedChecksum = await File.ReadAllBytesAsync(newManifestFileName + ".sha", localCt);
+                            if (File.Exists(manifestHashFileName))
+                                expectedChecksum = await File.ReadAllBytesAsync(manifestHashFileName, localCt);
                         }
                         catch (IOException)
                         {
@@ -743,13 +747,13 @@ namespace DepotDownloader
 
                         while (depotManifest == null)
                         {
-                            Tuple<CDNClient.Server, string> connection = null;
+                            (CDNClient.Server Server, string Token) connection = default;
                             try
                             {
                                 connection = await CdnPool.GetConnectionForDepot(appId, depot.id, ct);
 
                                 depotManifest = await CdnPool.CDNClient.DownloadManifestAsync(depot.id, depot.manifestId,
-                                    connection.Item1, connection.Item2, depot.depotKey);
+                                    connection.Server, connection.Token, depot.depotKey);
 
                                 CdnPool.ReturnConnection(connection);
                             }
@@ -759,24 +763,22 @@ namespace DepotDownloader
 
                                 if (e.StatusCode == HttpStatusCode.Unauthorized || e.StatusCode == HttpStatusCode.Forbidden)
                                 {
-                                    Console.WriteLine("Encountered 401 for depot manifest {0} {1}. Aborting.", depot.id, depot.manifestId);
+                                    Console.WriteLine($"Encountered 401 for depot manifest {depot.id} {depot.manifestId}. Aborting.");
                                     break;
                                 }
-                                else
-                                {
-                                    Console.WriteLine("Encountered error downloading depot manifest {0} {1}: {2}", depot.id, depot.manifestId, e.StatusCode);
-                                }
+
+                                Console.WriteLine($"Encountered error downloading depot manifest {depot.id} {depot.manifestId}: {e.StatusCode}");
                             }
                             catch (Exception e)
                             {
                                 CdnPool.ReturnBrokenConnection(connection);
-                                Console.WriteLine("Encountered error downloading manifest for depot {0} {1}: {2}", depot.id, depot.manifestId, e.Message);
+                                Console.WriteLine($"Encountered error downloading manifest for depot {depot.id} {depot.manifestId}: {e.Message}");
                             }
                         }
 
                         if (depotManifest == null)
                         {
-                            Console.WriteLine("\nUnable to download manifest {0} for depot {1}", depot.manifestId, depot.id);
+                            Console.WriteLine($"\nUnable to download manifest {depot.manifestId} for depot {depot.id}");
                             return;
                         }
 
@@ -784,7 +786,7 @@ namespace DepotDownloader
 
                         newProtoManifest = new ProtoManifest(depotManifest, depot.manifestId);
                         newProtoManifest.SaveToFile(newManifestFileName, out checksum);
-                        File.WriteAllBytes(newManifestFileName + ".sha", checksum);
+                        File.WriteAllBytes(manifestHashFileName, checksum);
 
                         Console.WriteLine(" Done!");
                     }
@@ -936,7 +938,7 @@ namespace DepotDownloader
                                 {
                                     // No old manifest or file not in old manifest. We must validate.
 
-                                    fs = File.Open(fileFinalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    fs = File.Open(fileFinalPath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
                                     if ((ulong) fi.Length != file.TotalSize)
                                     {
                                         fs.SetLength((long) file.TotalSize);
@@ -947,9 +949,12 @@ namespace DepotDownloader
 
                                 if (!neededChunks.Any())
                                 {
-                                    size_downloaded += file.TotalSize;
-                                    Console.WriteLine("{0,6:#00.00}% {1}", ((float) size_downloaded / (float) complete_download_size) * 100.0f, fileFinalPath);
                                     fs?.Dispose();
+                                    size_downloaded += file.TotalSize;
+                                    {
+                                        var completed = size_downloaded / (float) complete_download_size;
+                                        Console.WriteLine($"{completed,6:P2}% {fileFinalPath}");
+                                    }
                                     return;
                                 }
                                 else
@@ -967,7 +972,7 @@ namespace DepotDownloader
 
                                 while (!cts.IsCancellationRequested)
                                 {
-                                    Tuple<CDNClient.Server, string> connection;
+                                    (CDNClient.Server Server, string Token) connection;
                                     try
                                     {
                                         connection = await CdnPool.GetConnectionForDepot(appId, depot.id, localCt);
@@ -986,10 +991,12 @@ namespace DepotDownloader
                                         UncompressedLength = chunk.UncompressedLength
                                     };
 
+                                    var downloadChunkTask = CdnPool.CDNClient.DownloadDepotChunkAsync(depot.id, data,
+                                        connection.Server, connection.Token, depot.depotKey);
+                                    
                                     try
                                     {
-                                        chunkData = await CdnPool.CDNClient.DownloadDepotChunkAsync(depot.id, data,
-                                            connection.Item1, connection.Item2, depot.depotKey).ConfigureAwait(false);
+                                        chunkData = await downloadChunkTask;
                                         CdnPool.ReturnConnection(connection);
                                         break;
                                     }
@@ -1003,21 +1010,34 @@ namespace DepotDownloader
                                             localCts.Cancel();
                                             break;
                                         }
-                                        else
-                                        {
-                                            Console.WriteLine("Encountered error downloading chunk {0}: {1}", chunkID, e.StatusCode);
-                                        }
+
+                                        Console.WriteLine("Encountered error downloading chunk {0}: {1}", chunkID, e.StatusCode);
+                                    }
+                                    catch (OperationCanceledException e) when (e.InnerException is IOException ioe && ioe.InnerException is SocketException)
+                                    {
+                                        CdnPool.ReturnConnection(connection);
+                                        Console.WriteLine($"Encountered unexpected socket cancellation while downloading chunk {chunkID} from {connection.Item1}: {e.InnerException.InnerException.Message}");
+                                    }
+                                    catch (OperationCanceledException e) when (e.InnerException is IOException ioe)
+                                    {
+                                        CdnPool.ReturnConnection(connection);
+                                        Console.WriteLine($"Encountered unexpected IO cancellation while downloading chunk {chunkID}: {e.InnerException.Message}");
+                                    }
+                                    catch (OperationCanceledException e)
+                                    {
+                                        CdnPool.ReturnBrokenConnection(connection);
+                                        Console.WriteLine($"Encountered unexpected cancellation while downloading chunk {chunkID}: {e.Message}");
                                     }
                                     catch (Exception e)
                                     {
                                         CdnPool.ReturnBrokenConnection(connection);
-                                        Console.WriteLine("Encountered unexpected error downloading chunk {0}: {1}", chunkID, e.Message);
+                                        Console.WriteLine($"Encountered unexpected error downloading chunk {chunkID}: {e.Message}");
                                     }
                                 }
 
                                 if (chunkData == null)
                                 {
-                                    Console.WriteLine("Failed to find any server with chunk {0} for depot {1}. Aborting.", chunkID, depot.id);
+                                    Console.WriteLine($"Failed to find any server with chunk {chunkID} for depot {depot.id}. Aborting.");
                                     localCts.Cancel();
                                 }
 
@@ -1037,7 +1057,10 @@ namespace DepotDownloader
 
                             fs?.Dispose();
 
-                            Console.WriteLine("{0,6:#00.00}% {1}", ((float) size_downloaded / (float) complete_download_size) * 100.0f, fileFinalPath);
+                            {
+                                var completed = size_downloaded / (float) complete_download_size;
+                                Console.WriteLine($"{completed,6:P2}% {fileFinalPath}");
+                            }
                         }
                         finally
                         {
