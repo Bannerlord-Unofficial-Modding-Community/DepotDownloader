@@ -3,8 +3,10 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp2.0</TargetFramework>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <LangVersion>8</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="JetBrains.Annotations" Version="2020.1.0" PrivateAssets="all" />
     <PackageReference Include="protobuf-net" Version="2.4.4" />
     <PackageReference Include="SteamKit2" Version="2.3.0-Beta.1" />
   </ItemGroup>

@@ -12,7 +12,7 @@ namespace DepotDownloader
     /// <summary>
     /// CDNClientPool provides a pool of connections to CDN endpoints, requesting CDN tokens as needed
     /// </summary>
-    class CDNClientPool
+    public class CDNClientPool
     {
         private const int ServerEndpointMinimumSize = 8;
 
@@ -28,7 +28,7 @@ namespace DepotDownloader
         private readonly CancellationTokenSource shutdownToken;
         public CancellationTokenSource ExhaustedToken { get; set; }
 
-        public CDNClientPool(Steam3Session steamSession)
+        public CDNClientPool(Steam3Session steamSession, ContentDownloader context)
         {
             this.steamSession = steamSession;
             CDNClient = new CDNClient(steamSession.steamClient);
@@ -39,7 +39,7 @@ namespace DepotDownloader
             populatePoolEvent = new AutoResetEvent(true);
             shutdownToken = new CancellationTokenSource();
 
-            monitorTask = Task.Factory.StartNew(ConnectionPoolMonitorAsync).Unwrap();
+            monitorTask = Task.Factory.StartNew(() => ConnectionPoolMonitorAsync(context)).Unwrap();
         }
 
         public void Shutdown()
@@ -48,7 +48,7 @@ namespace DepotDownloader
             monitorTask.Wait();
         }
 
-        private async Task<IReadOnlyCollection<CDNClient.Server>> FetchBootstrapServerListAsync()
+        private async Task<IReadOnlyCollection<CDNClient.Server>> FetchBootstrapServerListAsync(ContentDownloader context)
         {
             var backoffDelay = 0;
 
@@ -56,11 +56,9 @@ namespace DepotDownloader
             {
                 try
                 {
-                    var cdnServers = await ContentServerDirectoryService.LoadAsync(this.steamSession.steamClient.Configuration, ContentDownloader.Config.CellID, shutdownToken.Token);
-                    if (cdnServers != null)
-                    {
-                        return cdnServers;
-                    }
+                    var cdnServers = await ContentServerDirectoryService.LoadAsync
+                        (this.steamSession.steamClient.Configuration, DownloadConfig.CellID, shutdownToken.Token);
+                    return cdnServers;
                 }
                 catch (Exception ex)
                 {
@@ -78,7 +76,7 @@ namespace DepotDownloader
             return null;
         }
 
-        private async Task ConnectionPoolMonitorAsync()
+        private async Task ConnectionPoolMonitorAsync(ContentDownloader context)
         {
             bool didPopulate = false;
 
@@ -89,7 +87,7 @@ namespace DepotDownloader
                 // We want the Steam session so we can take the CellID from the session and pass it through to the ContentServer Directory Service
                 if (availableServerEndpoints.Count < ServerEndpointMinimumSize && steamSession.steamClient.IsConnected)
                 {
-                    var servers = await FetchBootstrapServerListAsync().ConfigureAwait(false);
+                    var servers = await FetchBootstrapServerListAsync(context).ConfigureAwait(false);
 
                     if (servers == null)
                     {
