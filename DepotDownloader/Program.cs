@@ -37,8 +37,6 @@ namespace DepotDownloader
             DebugLog.Enabled = false;
 
             AccountSettingsStore.LoadFromFile( "account.config" );
-
-            var context = new ContentDownloader();
             
             #region Common Options
 
@@ -54,9 +52,12 @@ namespace DepotDownloader
             string username = GetParameter<string>( args, "-username" ) ?? GetParameter<string>( args, "-user" );
             string password = GetParameter<string>( args, "-password" ) ?? GetParameter<string>( args, "-pass" );
 
-            context.Config.RememberPassword = HasParameter( args, "-remember-password" );
 
-            context.Config.DownloadManifestOnly = HasParameter( args, "-manifest-only" );
+            var downloader = new ContentDownloader(username, password);
+
+            downloader.Config.RememberPassword = HasParameter( args, "-remember-password" );
+
+            downloader.Config.DownloadManifestOnly = HasParameter( args, "-manifest-only" );
 
             int cellId = GetParameter<int>( args, "-cellid", -1 );
             if ( cellId == -1 )
@@ -76,9 +77,9 @@ namespace DepotDownloader
                     string fileListData = await File.ReadAllTextAsync(fileList, ct);
                     files = fileListData.Split( new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries );
 
-                    context.Config.UsingFileList = true;
-                    context.Config.FilesToDownload = new ConcurrentQueue<string>();
-                    context.Config.FilesToDownloadRegex = new ConcurrentQueue<Regex>();
+                    downloader.Config.UsingFileList = true;
+                    downloader.Config.FilesToDownload = new ConcurrentQueue<string>();
+                    downloader.Config.FilesToDownloadRegex = new ConcurrentQueue<Regex>();
 
                     var isWindows = RuntimeInformation.IsOSPlatform( OSPlatform.Windows );
                     foreach ( var fileEntry in files )
@@ -97,7 +98,7 @@ namespace DepotDownloader
                                 fileEntryProcessed = fileEntry;
                             }
                             Regex rgx = new Regex( fileEntryProcessed, RegexOptions.Compiled | RegexOptions.IgnoreCase );
-                            context.Config.FilesToDownloadRegex.Enqueue( rgx );
+                            downloader.Config.FilesToDownloadRegex.Enqueue( rgx );
                         }
                         catch
                         {
@@ -105,9 +106,9 @@ namespace DepotDownloader
                             // on Windows
                             if( isWindows )
                             {
-                                context.Config.FilesToDownload.Enqueue( fileEntry.Replace( "\\", "/" ) );
+                                downloader.Config.FilesToDownload.Enqueue( fileEntry.Replace( "\\", "/" ) );
                             }
-                            context.Config.FilesToDownload.Enqueue( fileEntry );
+                            downloader.Config.FilesToDownload.Enqueue( fileEntry );
                             continue;
                         }
                     }
@@ -120,13 +121,13 @@ namespace DepotDownloader
                 }
             }
 
-            context.Config.InstallDirectory = GetParameter<string>( args, "-dir" );
+            downloader.Config.InstallDirectory = GetParameter<string>( args, "-dir" );
 
-            context.Config.VerifyAll = HasParameter( args, "-verify-all" ) || HasParameter( args, "-verify_all" ) || HasParameter( args, "-validate" );
-            context.Config.MaxServers = GetParameter<int>( args, "-max-servers", 20 );
-            context.Config.MaxDownloads = GetParameter<int>( args, "-max-downloads", 4 );
-            context.Config.MaxServers = Math.Max( context.Config.MaxServers, context.Config.MaxDownloads );
-            context.Config.LoginID = HasParameter( args, "-loginid" ) ? (uint?)GetParameter<uint>( args, "-loginid" ) : null;
+            downloader.Config.VerifyAll = HasParameter( args, "-verify-all" ) || HasParameter( args, "-verify_all" ) || HasParameter( args, "-validate" );
+            downloader.Config.MaxServers = GetParameter<int>( args, "-max-servers", 20 );
+            downloader.Config.MaxDownloads = GetParameter<int>( args, "-max-downloads", 4 );
+            downloader.Config.MaxServers = Math.Max( downloader.Config.MaxServers, downloader.Config.MaxDownloads );
+            downloader.Config.LoginID = HasParameter( args, "-loginid" ) ? (uint?)GetParameter<uint>( args, "-loginid" ) : null;
 
             #endregion
 
@@ -146,7 +147,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        await context.DownloadPubfileAsync( appId, pubFile, ct ).ConfigureAwait( false );
+                        await downloader.DownloadPubfileAsync( appId, pubFile, ct ).ConfigureAwait( false );
                     }
                     catch ( Exception ex ) when (
                         ex is ContentDownloaderException
@@ -178,12 +179,12 @@ namespace DepotDownloader
                 #region App downloading
 
                 string branch = GetParameter<string>( args, "-branch" ) ?? GetParameter<string>( args, "-beta" ) ?? ContentDownloader.DEFAULT_BRANCH;
-                context.Config.BetaPassword = GetParameter<string>( args, "-betapassword" );
+                downloader.Config.BetaPassword = GetParameter<string>( args, "-betapassword" );
 
-                context.Config.DownloadAllPlatforms = HasParameter( args, "-all-platforms" );
+                downloader.Config.DownloadAllPlatforms = HasParameter( args, "-all-platforms" );
                 string os = GetParameter<string>( args, "-os", null );
 
-                if ( context.Config.DownloadAllPlatforms && !String.IsNullOrEmpty( os ) )
+                if ( downloader.Config.DownloadAllPlatforms && !String.IsNullOrEmpty( os ) )
                 {
                     Console.WriteLine("Error: Cannot specify -os when -all-platforms is specified.");
                     return 1;
@@ -191,10 +192,10 @@ namespace DepotDownloader
 
                 string arch = GetParameter<string>( args, "-osarch", null );
 
-                context.Config.DownloadAllLanguages = HasParameter( args, "-all-languages" );
+                downloader.Config.DownloadAllLanguages = HasParameter( args, "-all-languages" );
                 string language = GetParameter<string>( args, "-language", null );
 
-                if ( context.Config.DownloadAllLanguages && !String.IsNullOrEmpty( language ) )
+                if ( downloader.Config.DownloadAllLanguages && !String.IsNullOrEmpty( language ) )
                 {
                     Console.WriteLine( "Error: Cannot specify -language when -all-languages is specified." );
                     return 1;
@@ -226,7 +227,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        await context.DownloadAppAsync( appId, depotId, manifestId, branch, os, arch, language, lv, isUGC, ct ).ConfigureAwait( false );
+                        await downloader.DownloadAppAsync( appId, depotId, manifestId, branch, os, arch, language, lv, isUGC, ct ).ConfigureAwait( false );
                     }
                     catch ( Exception ex ) when (
                         ex is ContentDownloaderException
@@ -257,9 +258,9 @@ namespace DepotDownloader
             return 0;
         }
 
-        public static bool InitializeSteam( string username, string password, ContentDownloader context )
+        public static ContentDownloader InitializeSteam( string username, string password, bool rememberPassword= false )
         {
-            if ( username != null && password == null && ( !(context?.Config.RememberPassword?? false) || !AccountSettingsStore.Instance.LoginKeys.ContainsKey( username ) ) )
+            if ( username != null && password == null && ( !rememberPassword || !AccountSettingsStore.Instance.LoginKeys.ContainsKey( username ) ) )
             {
                 do
                 {
@@ -282,9 +283,9 @@ namespace DepotDownloader
             }
 
             // capture the supplied password in case we need to re-use it after checking the login key
-            context.Config.SuppliedPassword = password;
-
-            return context.InitializeSteam3( username, password );
+            var downloader = new ContentDownloader(username, password);
+            downloader.Config.SuppliedPassword = password;
+            return downloader;
         }
 
         static int IndexOfParam( string[] args, string param )

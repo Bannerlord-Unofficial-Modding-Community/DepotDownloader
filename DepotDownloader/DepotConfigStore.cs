@@ -51,7 +51,7 @@ namespace DepotDownloader
             Instance.FileName = filename;
         }
 
-        private static volatile bool _saveQueued = false;
+        private static volatile bool _saveQueued;
 
         [MethodImpl(MethodImplOptions.Synchronized)]
         public static void Save()
