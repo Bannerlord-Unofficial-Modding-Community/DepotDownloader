@@ -430,7 +430,7 @@ namespace DepotDownloader
                 Console.WriteLine("Unable to locate manifest ID for published file {0}", publishedFileId);
             }
         }
-        
+
         public static readonly object _depotConfigLock = new object();
 
         public async Task DownloadAppAsync(uint appId, uint depotId, ulong manifestId, string branch, string os, string arch, string language, bool lv, bool isUgc, CancellationToken ct)
@@ -645,6 +645,7 @@ namespace DepotDownloader
         {
             if (CdnPool == null)
                 throw new InvalidOperationException("A CDN Pool must be associated with the ContentDownloader instance to download.");
+
             ulong TotalBytesCompressed = 0;
             ulong TotalBytesUncompressed = 0;
 
@@ -1056,6 +1057,13 @@ namespace DepotDownloader
 
             Console.WriteLine("Total downloaded: {0} bytes ({1} bytes uncompressed) from {2} depots", TotalBytesCompressed, TotalBytesUncompressed, depots.Count);
         }
+
+        public ContentDownloader Fork()
+            => new ContentDownloader
+            {
+                steam3 = steam3,
+                Config = Config.Clone()
+            };
 
     }
 
