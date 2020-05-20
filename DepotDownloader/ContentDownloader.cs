@@ -1039,29 +1039,23 @@ namespace DepotDownloader
 
                                         Console.WriteLine("Encountered error downloading chunk {0}: {1}", chunkID, e.StatusCode);
                                     }
-                                    catch (OperationCanceledException e) when (e.InnerException is IOException ioe && ioe.InnerException is SocketException)
-                                    {
-                                        CdnPool.ReturnConnection(connection);
-                                        Console.WriteLine($"Encountered unexpected socket cancellation while downloading chunk {chunkID} from {connection.Server}:\n"
-                                            + e.InnerException.InnerException);
-                                    }
-                                    catch (OperationCanceledException e) when (e.InnerException is IOException ioe)
-                                    {
-                                        CdnPool.ReturnConnection(connection);
-                                        Console.WriteLine($"Encountered unexpected IO cancellation while downloading chunk {chunkID}:\n"
-                                            + e.InnerException);
-                                    }
                                     catch (OperationCanceledException e)
                                     {
                                         CdnPool.ReturnBrokenConnection(connection);
                                         Console.WriteLine($"Encountered unexpected cancellation while downloading chunk {chunkID}: {e.Message}:\n"
                                             + e);
+                                        Exception iex = e;
+                                        do Console.Write(iex = iex.InnerException);
+                                        while (iex != null);
                                     }
                                     catch (Exception e)
                                     {
                                         CdnPool.ReturnBrokenConnection(connection);
                                         Console.WriteLine($"Encountered unexpected error downloading chunk {chunkID}: {e.Message}:\n"
                                             + e);
+                                        Exception iex = e;
+                                        do Console.Write(iex = iex.InnerException);
+                                        while (iex != null);
                                     }
                                 }
 
