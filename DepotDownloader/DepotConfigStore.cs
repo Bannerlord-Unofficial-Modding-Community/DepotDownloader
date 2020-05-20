@@ -1,22 +1,27 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using ProtoBuf;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace DepotDownloader
 {
+
     [ProtoContract]
     class DepotConfigStore
     {
+
         [ProtoMember(1)]
-        public Dictionary<uint, ulong> InstalledManifestIDs { get; private set; }
+        public IDictionary<uint, ulong> InstalledManifestIDs { get; private set; }
 
         string FileName = null;
 
         DepotConfigStore()
         {
-            InstalledManifestIDs = new Dictionary<uint, ulong>();
+            InstalledManifestIDs = new ConcurrentDictionary<uint, ulong>();
         }
 
         static bool Loaded
@@ -26,15 +31,15 @@ namespace DepotDownloader
 
         public static DepotConfigStore Instance = null;
 
+        [MethodImpl(MethodImplOptions.Synchronized)]
         public static void LoadFromFile(string filename)
         {
             if (Loaded)
                 return;
-                //throw new Exception("Config already loaded");
 
             if (File.Exists(filename))
             {
-                using (FileStream fs = File.Open(filename, FileMode.Open))
+                using (FileStream fs = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
                 using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
                     Instance = ProtoBuf.Serializer.Deserialize<DepotConfigStore>(ds);
             }
@@ -46,14 +51,44 @@ namespace DepotDownloader
             Instance.FileName = filename;
         }
 
+        private static volatile bool _saveQueued;
+
+        [MethodImpl(MethodImplOptions.Synchronized)]
         public static void Save()
         {
             if (!Loaded)
                 throw new Exception("Saved config before loading");
 
-            using (FileStream fs = File.Open(Instance.FileName, FileMode.Create))
-            using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Compress))
-                ProtoBuf.Serializer.Serialize<DepotConfigStore>(ds, Instance);
+            if (_saveQueued)
+                return;
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(500);
+                
+                if (!_saveQueued)
+                    return;
+
+                do
+                {
+                    try
+                    {
+                        using (var fs = File.Open(Instance.FileName, FileMode.Create, FileAccess.Write, FileShare.None))
+                        using (var ds = new DeflateStream(fs, CompressionMode.Compress))
+                            Serializer.Serialize(ds, Instance);
+                        _saveQueued = false;
+                        break;
+                    }
+                    catch (IOException)
+                    {
+                        // ok
+                    }
+                } while (_saveQueued);
+            });
+
+            _saveQueued = true;
         }
+
     }
+
 }

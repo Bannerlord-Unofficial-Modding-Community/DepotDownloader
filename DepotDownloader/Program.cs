@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -6,15 +7,27 @@ using SteamKit2;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
+using System.Threading;
+
 namespace DepotDownloader
 {
     public class Program
     {
-        public static int Main( string[] args )
-            => MainAsync( args ).GetAwaiter().GetResult();
 
-        public static async Task<int> MainAsync( string[] args )
+        public static async Task<int> Main( string[] args )
         {
+            var ctrlC = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, eventArgs) =>
+            {
+                if (eventArgs.SpecialKey != ConsoleSpecialKey.ControlC)
+                    return;
+
+                ctrlC.Cancel();
+                eventArgs.Cancel = true;
+            };
+
+            var ct = ctrlC.Token;
+            
             if ( args.Length == 0 )
             {
                 PrintUsage();
@@ -24,7 +37,7 @@ namespace DepotDownloader
             DebugLog.Enabled = false;
 
             AccountSettingsStore.LoadFromFile( "account.config" );
-
+            
             #region Common Options
 
             if ( HasParameter( args, "-debug" ) )
@@ -38,9 +51,13 @@ namespace DepotDownloader
 
             string username = GetParameter<string>( args, "-username" ) ?? GetParameter<string>( args, "-user" );
             string password = GetParameter<string>( args, "-password" ) ?? GetParameter<string>( args, "-pass" );
-            ContentDownloader.Config.RememberPassword = HasParameter( args, "-remember-password" );
 
-            ContentDownloader.Config.DownloadManifestOnly = HasParameter( args, "-manifest-only" );
+
+            var downloader = new ContentDownloader(username, password);
+
+            downloader.Config.RememberPassword = HasParameter( args, "-remember-password" );
+
+            downloader.Config.DownloadManifestOnly = HasParameter( args, "-manifest-only" );
 
             int cellId = GetParameter<int>( args, "-cellid", -1 );
             if ( cellId == -1 )
@@ -48,7 +65,7 @@ namespace DepotDownloader
                 cellId = 0;
             }
 
-            ContentDownloader.Config.CellID = cellId;
+            DownloadConfig.CellID = cellId;
 
             string fileList = GetParameter<string>( args, "-filelist" );
             string[] files = null;
@@ -57,12 +74,12 @@ namespace DepotDownloader
             {
                 try
                 {
-                    string fileListData = File.ReadAllText(fileList);
+                    string fileListData = await File.ReadAllTextAsync(fileList, ct);
                     files = fileListData.Split( new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries );
 
-                    ContentDownloader.Config.UsingFileList = true;
-                    ContentDownloader.Config.FilesToDownload = new List<string>();
-                    ContentDownloader.Config.FilesToDownloadRegex = new List<Regex>();
+                    downloader.Config.UsingFileList = true;
+                    downloader.Config.FilesToDownload = new ConcurrentQueue<string>();
+                    downloader.Config.FilesToDownloadRegex = new ConcurrentQueue<Regex>();
 
                     var isWindows = RuntimeInformation.IsOSPlatform( OSPlatform.Windows );
                     foreach ( var fileEntry in files )
@@ -81,7 +98,7 @@ namespace DepotDownloader
                                 fileEntryProcessed = fileEntry;
                             }
                             Regex rgx = new Regex( fileEntryProcessed, RegexOptions.Compiled | RegexOptions.IgnoreCase );
-                            ContentDownloader.Config.FilesToDownloadRegex.Add( rgx );
+                            downloader.Config.FilesToDownloadRegex.Enqueue( rgx );
                         }
                         catch
                         {
@@ -89,9 +106,9 @@ namespace DepotDownloader
                             // on Windows
                             if( isWindows )
                             {
-                                ContentDownloader.Config.FilesToDownload.Add( fileEntry.Replace( "\\", "/" ) );
+                                downloader.Config.FilesToDownload.Enqueue( fileEntry.Replace( "\\", "/" ) );
                             }
-                            ContentDownloader.Config.FilesToDownload.Add( fileEntry );
+                            downloader.Config.FilesToDownload.Enqueue( fileEntry );
                             continue;
                         }
                     }
@@ -104,13 +121,13 @@ namespace DepotDownloader
                 }
             }
 
-            ContentDownloader.Config.InstallDirectory = GetParameter<string>( args, "-dir" );
+            downloader.Config.InstallDirectory = GetParameter<string>( args, "-dir" );
 
-            ContentDownloader.Config.VerifyAll = HasParameter( args, "-verify-all" ) || HasParameter( args, "-verify_all" ) || HasParameter( args, "-validate" );
-            ContentDownloader.Config.MaxServers = GetParameter<int>( args, "-max-servers", 20 );
-            ContentDownloader.Config.MaxDownloads = GetParameter<int>( args, "-max-downloads", 4 );
-            ContentDownloader.Config.MaxServers = Math.Max( ContentDownloader.Config.MaxServers, ContentDownloader.Config.MaxDownloads );
-            ContentDownloader.Config.LoginID = HasParameter( args, "-loginid" ) ? (uint?)GetParameter<uint>( args, "-loginid" ) : null;
+            downloader.Config.VerifyAll = HasParameter( args, "-verify-all" ) || HasParameter( args, "-verify_all" ) || HasParameter( args, "-validate" );
+            downloader.Config.MaxServers = GetParameter<int>( args, "-max-servers", 20 );
+            downloader.Config.MaxDownloads = GetParameter<int>( args, "-max-downloads", 4 );
+            downloader.Config.MaxServers = Math.Max( downloader.Config.MaxServers, downloader.Config.MaxDownloads );
+            downloader.Config.LoginID = HasParameter( args, "-loginid" ) ? (uint?)GetParameter<uint>( args, "-loginid" ) : null;
 
             #endregion
 
@@ -130,7 +147,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        await ContentDownloader.DownloadPubfileAsync( appId, pubFile ).ConfigureAwait( false );
+                        await downloader.DownloadPubfileAsync( appId, pubFile, ct ).ConfigureAwait( false );
                     }
                     catch ( Exception ex ) when (
                         ex is ContentDownloaderException
@@ -162,12 +179,12 @@ namespace DepotDownloader
                 #region App downloading
 
                 string branch = GetParameter<string>( args, "-branch" ) ?? GetParameter<string>( args, "-beta" ) ?? ContentDownloader.DEFAULT_BRANCH;
-                ContentDownloader.Config.BetaPassword = GetParameter<string>( args, "-betapassword" );
+                downloader.Config.BetaPassword = GetParameter<string>( args, "-betapassword" );
 
-                ContentDownloader.Config.DownloadAllPlatforms = HasParameter( args, "-all-platforms" );
+                downloader.Config.DownloadAllPlatforms = HasParameter( args, "-all-platforms" );
                 string os = GetParameter<string>( args, "-os", null );
 
-                if ( ContentDownloader.Config.DownloadAllPlatforms && !String.IsNullOrEmpty( os ) )
+                if ( downloader.Config.DownloadAllPlatforms && !String.IsNullOrEmpty( os ) )
                 {
                     Console.WriteLine("Error: Cannot specify -os when -all-platforms is specified.");
                     return 1;
@@ -175,10 +192,10 @@ namespace DepotDownloader
 
                 string arch = GetParameter<string>( args, "-osarch", null );
 
-                ContentDownloader.Config.DownloadAllLanguages = HasParameter( args, "-all-languages" );
+                downloader.Config.DownloadAllLanguages = HasParameter( args, "-all-languages" );
                 string language = GetParameter<string>( args, "-language", null );
 
-                if ( ContentDownloader.Config.DownloadAllLanguages && !String.IsNullOrEmpty( language ) )
+                if ( downloader.Config.DownloadAllLanguages && !String.IsNullOrEmpty( language ) )
                 {
                     Console.WriteLine( "Error: Cannot specify -language when -all-languages is specified." );
                     return 1;
@@ -210,7 +227,7 @@ namespace DepotDownloader
                 {
                     try
                     {
-                        await ContentDownloader.DownloadAppAsync( appId, depotId, manifestId, branch, os, arch, language, lv, isUGC ).ConfigureAwait( false );
+                        await downloader.DownloadAppAsync( appId, depotId, manifestId, branch, os, arch, language, lv, isUGC, ct ).ConfigureAwait( false );
                     }
                     catch ( Exception ex ) when (
                         ex is ContentDownloaderException
@@ -241,9 +258,9 @@ namespace DepotDownloader
             return 0;
         }
 
-        public static bool InitializeSteam( string username, string password )
+        public static ContentDownloader InitializeSteam( string username, string password, bool rememberPassword= false )
         {
-            if ( username != null && password == null && ( !ContentDownloader.Config.RememberPassword || !AccountSettingsStore.Instance.LoginKeys.ContainsKey( username ) ) )
+            if ( username != null && password == null && ( !rememberPassword || !AccountSettingsStore.Instance.LoginKeys.ContainsKey( username ) ) )
             {
                 do
                 {
@@ -266,9 +283,9 @@ namespace DepotDownloader
             }
 
             // capture the supplied password in case we need to re-use it after checking the login key
-            ContentDownloader.Config.SuppliedPassword = password;
-
-            return ContentDownloader.InitializeSteam3( username, password );
+            var downloader = new ContentDownloader(username, password);
+            downloader.Config.SuppliedPassword = password;
+            return downloader;
         }
 
         static int IndexOfParam( string[] args, string param )

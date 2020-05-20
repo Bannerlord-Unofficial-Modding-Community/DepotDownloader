@@ -5,6 +5,8 @@ using System.IO;
 using System.IO.Compression;
 using System.IO.IsolatedStorage;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using SteamKit2;
 using SteamKit2.Discovery;
 
@@ -39,6 +41,7 @@ namespace DepotDownloader
         public static AccountSettingsStore Instance = null;
         static readonly IsolatedStorageFile IsolatedStorage = IsolatedStorageFile.GetUserStoreForAssembly();
 
+        [MethodImpl(MethodImplOptions.Synchronized)]
         public static void LoadFromFile(string filename)
         {
             if (Loaded)
@@ -69,23 +72,44 @@ namespace DepotDownloader
             Instance.FileName = filename;
         }
 
+
+        private static volatile bool _saveQueued;
+
+        [MethodImpl(MethodImplOptions.Synchronized)]
         public static void Save()
         {
             if (!Loaded)
                 throw new Exception("Saved config before loading");
 
-            try
+            if (_saveQueued)
+                return;
+
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                using (var fs = IsolatedStorage.OpenFile(Instance.FileName, FileMode.Create, FileAccess.Write))
-                using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Compress))
+                Thread.Sleep(500);
+                
+                if (!_saveQueued)
+                    return;
+
+                do
                 {
-                    ProtoBuf.Serializer.Serialize<AccountSettingsStore>(ds, Instance);
-                }
-            }
-            catch (IOException ex)
-            {
-                Console.WriteLine("Failed to save account settings: {0}", ex.Message);
-            }
+                    try
+                    {
+                        using (var fs = IsolatedStorage.OpenFile(Instance.FileName, FileMode.Create, FileAccess.Write, FileShare.None))
+                        using (var ds = new DeflateStream(fs, CompressionMode.Compress))
+                            Serializer.Serialize(ds, Instance);
+                        _saveQueued = false;
+                        break;
+                    }
+                    catch (IOException)
+                    {
+                        // ok
+                    }
+                } while (_saveQueued);
+            });
+
+            _saveQueued = true;
         }
+
     }
 }
