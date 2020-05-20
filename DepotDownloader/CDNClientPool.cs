@@ -178,10 +178,9 @@ namespace DepotDownloader
         public void ReturnConnection((CDNClient.Server Server, string Token) server)
             => activeConnectionPool.Push(server.Server);
 
-        public void ReturnBrokenConnection((CDNClient.Server, string) server)
-        {
-            // Broken connections are not returned to the pool
-        }
+        // Broken connections are not returned to the pool
+        public void ReturnBrokenConnection((CDNClient.Server Server, string Token) server)
+            => Console.WriteLine($"Dropping {server.Server} from connection pool.");
 
     }
 

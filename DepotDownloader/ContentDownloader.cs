@@ -769,27 +769,23 @@ namespace DepotDownloader
 
                                 Console.WriteLine($"Encountered error downloading depot manifest {depot.id} {depot.manifestId}: {e.StatusCode}");
                             }
-                            catch (OperationCanceledException e) when (e.InnerException is IOException ioe && ioe.InnerException is SocketException)
-                            {
-                                CdnPool.ReturnConnection(connection);
-                                Console.WriteLine($"Encountered unexpected socket cancellation while downloading depot manifest {depot.id} {depot.manifestId} from {connection.Server}:\n"
-                                    + e.InnerException.InnerException);
-                            }
-                            catch (OperationCanceledException e) when (e.InnerException is IOException ioe)
-                            {
-                                CdnPool.ReturnConnection(connection);
-                                Console.WriteLine($"Encountered unexpected IO cancellation while downloading depot manifest {depot.id} {depot.manifestId}:\n"
-                                    + e.InnerException);
-                            }
                             catch (OperationCanceledException e)
                             {
                                 CdnPool.ReturnBrokenConnection(connection);
+                                Console.WriteLine($"Encountered unexpected cancellation while downloading depot manifest {depot.id} {depot.manifestId}:\n"
+                                    + e);
+                                Exception iex = e;
+                                do Console.Write(iex = iex.InnerException);
+                                while (iex != null);
                             }
                             catch (Exception e)
                             {
                                 CdnPool.ReturnBrokenConnection(connection);
                                 Console.WriteLine($"Encountered error downloading manifest for depot {depot.id} {depot.manifestId}:\n"
                                     + e);
+                                Exception iex = e;
+                                do Console.Write(iex = iex.InnerException);
+                                while (iex != null);
                             }
                         }
 
